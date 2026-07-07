@@ -1,0 +1,1396 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>CellMapper Forensic — ระบบวิเคราะห์แผนที่สัญญาณ</title>
+<meta name="description" content="ระบบถอดรหัส CGI/PLMN/LAC-CI และสร้างแผนที่สัญญาณเพื่อการสืบสวน">
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0a1f44">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CellMapper">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{
+  --navy-900:#081428; --navy-800:#0a1f44; --navy-700:#0d2a5c; --navy-600:#123a75;
+  --navy-500:#1a4d94; --gold:#c9a227; --gold-lt:#e6c65a; --gold-dk:#9a7b16;
+  --ink:#e8eef7; --ink-mut:#9db0cc; --ink-dim:#63789c;
+  --line:#1c355e; --line-lt:#26457a;
+  --ok:#2ecc71; --warn:#e6a919; --bad:#e04b4b; --info:#4aa3e0;
+  --card:#0c2148; --card2:#0e2853;
+  --op-ais:#4aa3e0; --op-dtac:#3fbf8f; --op-true:#e04b6a; --op-nt:#c9a227;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Sarabun',sans-serif; background:
+    radial-gradient(1200px 600px at 80% -10%, #10305e 0%, transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, #0e2140 0%, transparent 55%),
+    var(--navy-900);
+  color:var(--ink); font-size:14px; line-height:1.5; overflow-x:hidden;
+}
+::selection{background:var(--gold);color:#081428}
+code,.mono,input,textarea,.tag,.pill{font-family:'JetBrains Mono',monospace}
+
+/* ---------- Header ---------- */
+header{
+  display:flex;align-items:center;gap:16px;padding:14px 22px;
+  background:linear-gradient(180deg,rgba(10,31,68,.92),rgba(8,20,40,.75));
+  border-bottom:1px solid var(--line-lt);position:sticky;top:0;z-index:900;
+  backdrop-filter:blur(8px);
+}
+.logo{
+  width:46px;height:46px;flex:0 0 46px;border-radius:11px;position:relative;
+  background:linear-gradient(135deg,var(--navy-600),var(--navy-800));
+  border:1px solid var(--gold);display:grid;place-items:center;overflow:hidden;
+}
+.logo::before{content:"";position:absolute;inset:0;
+  background:
+    repeating-conic-gradient(from 0deg at 50% 50%, transparent 0 26deg, rgba(201,162,39,.18) 26deg 30deg);
+  animation:sweep 6s linear infinite;
+}
+.logo svg{position:relative;z-index:2}
+@keyframes sweep{to{transform:rotate(360deg)}}
+.brand h1{font-size:19px;font-weight:800;letter-spacing:.3px;
+  background:linear-gradient(90deg,#fff,var(--gold-lt));-webkit-background-clip:text;background-clip:text;color:transparent}
+.brand .sub{font-size:11.5px;color:var(--ink-mut);letter-spacing:.4px;text-transform:uppercase;font-weight:600}
+.hd-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.stat-chip{background:var(--card);border:1px solid var(--line);border-radius:9px;padding:6px 11px;font-size:11px;color:var(--ink-mut)}
+.stat-chip b{color:var(--gold-lt);font-family:'JetBrains Mono';font-size:13px}
+
+/* ---------- Tabs ---------- */
+nav.tabs{display:flex;gap:4px;padding:8px 18px 0;background:rgba(8,20,40,.5);border-bottom:1px solid var(--line);
+  position:sticky;top:75px;z-index:850;flex-wrap:wrap;backdrop-filter:blur(8px)}
+.tab{padding:9px 16px;border:1px solid transparent;border-bottom:none;border-radius:9px 9px 0 0;
+  cursor:pointer;font-weight:600;color:var(--ink-mut);font-size:13.5px;user-select:none;transition:.15s;display:flex;align-items:center;gap:7px}
+.tab:hover{color:var(--ink);background:rgba(255,255,255,.03)}
+.tab.active{color:var(--gold-lt);background:var(--navy-800);border-color:var(--line-lt);position:relative}
+.tab.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--gold)}
+.tab .ic{width:16px;height:16px;opacity:.9}
+
+main{padding:20px 22px 40px;max-width:1500px;margin:0 auto}
+.view{display:none;animation:fade .25s ease}
+.view.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---------- Cards / grid ---------- */
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:1fr 1fr}
+.g-decode{grid-template-columns:minmax(380px,1fr) minmax(420px,1.2fr)}
+@media(max-width:920px){.g2,.g-decode{grid-template-columns:1fr}}
+.panel{background:linear-gradient(180deg,var(--card),var(--navy-800));border:1px solid var(--line-lt);
+  border-radius:14px;padding:18px;position:relative}
+.panel h2{font-size:15px;font-weight:700;color:var(--gold-lt);margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.panel .hint{font-size:12px;color:var(--ink-dim);margin-bottom:14px}
+.panel h2 .num{font-family:'JetBrains Mono';font-size:12px;color:var(--gold);border:1px solid var(--gold-dk);
+  border-radius:6px;padding:1px 7px;font-weight:700}
+
+label.fld{display:block;font-size:11.5px;font-weight:600;color:var(--ink-mut);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 5px}
+input[type=text],input[type=number],textarea,select{
+  width:100%;background:#08182f;border:1px solid var(--line-lt);border-radius:9px;color:var(--ink);
+  padding:10px 12px;font-size:14px;transition:.15s;outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,39,.13)}
+textarea{resize:vertical;min-height:96px;line-height:1.55}
+select{cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%23c9a227' stroke-width='1.6' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+
+.btn{display:inline-flex;align-items:center;gap:8px;border:none;border-radius:9px;padding:10px 16px;
+  font-family:'Sarabun';font-weight:700;font-size:13.5px;cursor:pointer;transition:.15s;user-select:none}
+.btn-gold{background:linear-gradient(135deg,var(--gold),var(--gold-dk));color:#1a1205}
+.btn-gold:hover{filter:brightness(1.1);box-shadow:0 4px 16px rgba(201,162,39,.3)}
+.btn-ghost{background:transparent;border:1px solid var(--line-lt);color:var(--ink-mut)}
+.btn-ghost:hover{border-color:var(--gold);color:var(--gold-lt)}
+.btn-sm{padding:6px 11px;font-size:12px}
+.btn-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+
+/* ---------- Decode result ---------- */
+.result-empty{border:1.5px dashed var(--line-lt);border-radius:12px;padding:34px 18px;text-align:center;color:var(--ink-dim);font-size:13px}
+.res-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:11px;margin-bottom:12px;
+  background:linear-gradient(135deg,var(--navy-700),var(--navy-800));border:1px solid var(--line-lt)}
+.op-badge{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-weight:800;font-size:15px;
+  font-family:'JetBrains Mono';color:#fff;flex:0 0 44px}
+.res-head .rh-t{font-weight:800;font-size:16px}
+.res-head .rh-s{font-size:12px;color:var(--ink-mut)}
+.tech-pill{margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;border:1px solid currentColor}
+
+.kv{display:grid;grid-template-columns:130px 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.kv .k,.kv .v{background:var(--navy-800);padding:9px 13px}
+.kv .k{color:var(--ink-mut);font-size:12px;font-weight:600;display:flex;align-items:center}
+.kv .v{font-family:'JetBrains Mono';font-size:13.5px;color:var(--ink);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.kv .v .hex{color:var(--ink-dim)}
+.kv .v b{color:var(--gold-lt)}
+.copy{cursor:pointer;color:var(--ink-dim);font-size:11px;border:1px solid var(--line-lt);border-radius:5px;padding:1px 6px;transition:.15s}
+.copy:hover{color:var(--gold);border-color:var(--gold)}
+
+.chain{margin-top:14px;background:#08182f;border:1px solid var(--line-lt);border-radius:10px;padding:12px 14px;font-family:'JetBrains Mono';font-size:12.5px;line-height:2}
+.chain .lbl{color:var(--ink-dim)}
+.chain .step{color:var(--gold-lt)}
+.chain .arw{color:var(--op-true)}
+
+/* ---------- Tables ---------- */
+.tbl-wrap{overflow-x:auto;border-radius:11px;border:1px solid var(--line-lt)}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{background:var(--navy-700);color:var(--gold-lt);text-align:left;padding:9px 11px;font-weight:700;
+  white-space:nowrap;border-bottom:1px solid var(--line-lt);position:sticky;top:0}
+td{padding:8px 11px;border-bottom:1px solid var(--line);font-family:'JetBrains Mono';color:var(--ink)}
+tr:hover td{background:rgba(255,255,255,.025)}
+tr:last-child td{border-bottom:none}
+.t-op{font-family:'Sarabun';font-weight:600}
+.mini-act{cursor:pointer;color:var(--info);font-size:11px}
+.mini-act:hover{color:var(--gold-lt);text-decoration:underline}
+.tbl-empty{padding:26px;text-align:center;color:var(--ink-dim);font-size:12.5px}
+
+/* ---------- Map ---------- */
+#map,#cdrmap{height:560px;border-radius:12px;border:1px solid var(--line-lt);background:#0a1830}
+.leaflet-tile{filter:brightness(.85) contrast(1.05) saturate(.9)}
+.map-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.tw-list{max-height:560px;overflow:auto;padding-right:4px}
+.tw-item{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:9px;
+  padding:9px 11px;margin-bottom:8px;cursor:pointer;transition:.15s}
+.tw-item:hover{border-color:var(--gold);background:var(--card2)}
+.tw-item .tw-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tw-item .tw-name{font-weight:700;font-size:13px;font-family:'JetBrains Mono'}
+.tw-item .tw-meta{font-size:11px;color:var(--ink-mut);font-family:'JetBrains Mono';margin-top:2px}
+.tw-item .tw-del{color:var(--bad);cursor:pointer;font-size:11px;opacity:.7}
+.tw-item .tw-del:hover{opacity:1}
+
+.toggle{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-mut);cursor:pointer;user-select:none}
+.toggle input{width:auto;accent-color:var(--gold)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-mut);margin-top:10px}
+.legend span{display:flex;align-items:center;gap:6px}
+.dot{width:11px;height:11px;border-radius:50%;display:inline-block}
+
+/* ---------- Tools ---------- */
+.tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.big-out{font-family:'JetBrains Mono';font-size:22px;font-weight:700;color:var(--gold-lt);margin-top:8px;word-break:break-all}
+.big-out small{font-size:12px;color:var(--ink-dim);font-weight:400}
+.inline-flds{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+/* reference */
+.ref-note{background:#08182f;border:1px solid var(--line-lt);border-radius:10px;padding:13px 15px;margin-top:12px;font-size:13px;color:var(--ink-mut);line-height:1.7}
+.ref-note b{color:var(--gold-lt)}
+.tag{display:inline-block;background:var(--navy-700);border:1px solid var(--line-lt);border-radius:6px;padding:2px 8px;font-size:11.5px;color:var(--gold-lt);margin:2px}
+
+footer{text-align:center;padding:22px;color:var(--ink-dim);font-size:12px;border-top:1px solid var(--line)}
+footer b{color:var(--gold)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--navy-700);border:1px solid var(--gold);color:var(--gold-lt);padding:11px 20px;border-radius:11px;
+  font-weight:600;font-size:13px;z-index:2000;transition:.3s;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.warn-box{background:rgba(224,75,75,.08);border:1px solid var(--bad);border-radius:9px;padding:9px 12px;font-size:12px;color:#f2a0a0;margin-top:10px}
+.net-dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);flex:0 0 9px}
+.net-dot.off{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+.update-bar{position:fixed;bottom:0;left:0;right:0;background:linear-gradient(90deg,var(--navy-700),var(--navy-600));
+  border-top:1px solid var(--gold);padding:11px 18px;display:none;align-items:center;gap:14px;z-index:1500;font-size:13px}
+.update-bar.show{display:flex}
+.update-bar b{color:var(--gold-lt)}
+@media(max-width:600px){.stat-chip{display:none}.brand .sub{display:none}}
+.leaflet-popup-content-wrapper{background:var(--navy-800);color:var(--ink);border:1px solid var(--gold-dk);border-radius:10px}
+.leaflet-popup-tip{background:var(--navy-800)}
+.leaflet-popup-content{font-family:'Sarabun';font-size:13px}
+.leaflet-popup-content b{color:var(--gold-lt)}
+.pop-k{color:var(--ink-mut);font-size:11px}
+.pop-v{font-family:'JetBrains Mono';color:var(--gold-lt)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3v18M5 8c0-2 3-4 7-4s7 2 7 4M4 12c0-3 4-5 8-5s8 2 8 5" stroke="#c9a227" stroke-width="1.4" stroke-linecap="round"/>
+      <circle cx="12" cy="14" r="2.4" fill="#e6c65a"/>
+      <path d="M9.5 20l2.5-6 2.5 6z" fill="#c9a227" opacity=".8"/>
+    </svg>
+  </div>
+  <div class="brand">
+    <h1>CellMapper Forensic</h1>
+    <div class="sub">Signal Intelligence · Cell Site Analysis · แผนที่สัญญาณสืบสวน</div>
+  </div>
+  <div class="hd-right">
+    <div class="stat-chip">เสา/เซลล์ <b id="chipTowers">0</b></div>
+    <div class="stat-chip">CDR <b id="chipCdr">0</b></div>
+    <div class="stat-chip" id="chipDate"></div>
+    <span class="net-dot" id="netDot" title="สถานะเครือข่าย"></span>
+    <button class="btn btn-gold btn-sm" id="installBtn" style="display:none" onclick="installApp()">⬇ ติดตั้งแอป</button>
+    <button class="btn btn-ghost btn-sm" onclick="exportProject()">💾 Export</button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('importFile').click()">📂 Import</button>
+    <input type="file" id="importFile" accept=".json" style="display:none" onchange="importProject(event)">
+  </div>
+</header>
+
+<nav class="tabs" id="tabs">
+  <div class="tab active" data-view="decode"><span class="ic">🔓</span>Decoder</div>
+  <div class="tab" data-view="search"><span class="ic">🔍</span>ค้นหาเสา</div>
+  <div class="tab" data-view="map"><span class="ic">🗺️</span>แผนที่สัญญาณ</div>
+  <div class="tab" data-view="cdr"><span class="ic">📊</span>CDR Analysis</div>
+  <div class="tab" data-view="tools"><span class="ic">📐</span>เครื่องมือ SIGINT</div>
+  <div class="tab" data-view="ref"><span class="ic">📚</span>อ้างอิง</div>
+</nav>
+
+<main>
+<!-- ============ DECODER ============ -->
+<section class="view active" id="view-decode">
+  <div class="grid g-decode">
+    <div class="panel">
+      <h2><span class="num">01</span>ถอดรหัส CGI / PLMN / LAC-CI</h2>
+      <div class="hint">รองรับทุก format ที่พบในงาน trace: BCD swapped-nibble, decimal PLMN + hex, และ CGI เต็ม</div>
+
+      <label class="fld">ป้อนค่า (บรรทัดเดียว หรือหลายบรรทัดเพื่อ batch)</label>
+      <textarea id="decIn" placeholder="ตัวอย่าง:&#10;25f0500645a90c&#10;52003 2197 753ED&#10;520 03 8599 480237&#10;25f050 0645 a90c"></textarea>
+
+      <div class="inline-flds" style="margin-top:12px">
+        <div>
+          <label class="fld">รูปแบบ input</label>
+          <select id="decFmt">
+            <option value="auto">อัตโนมัติ (แนะนำ)</option>
+            <option value="cgi_bcd">CGI เต็ม — BCD swapped (25f050…)</option>
+            <option value="split_bcd">PLMN(BCD) + LAC/CI แยก</option>
+            <option value="dec_hex">PLMN decimal + LAC/CI hex (52003 2197…)</option>
+            <option value="dec_dec">ทุกค่าเป็น decimal แล้ว</option>
+          </select>
+        </div>
+        <div>
+          <label class="fld">เทคโนโลยี (สำหรับ decompose)</label>
+          <select id="decTech">
+            <option value="auto">อัตโนมัติจากค่า CI</option>
+            <option value="2G">2G / GSM</option>
+            <option value="3G">3G / UMTS (RNC+CID)</option>
+            <option value="4G">4G / LTE (eNB+Sector)</option>
+            <option value="5G">5G / NR (gNB+Sector)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-gold" onclick="runDecode()">▸ ถอดรหัส</button>
+        <button class="btn btn-ghost" onclick="fillSample()">ตัวอย่าง</button>
+        <button class="btn btn-ghost" onclick="document.getElementById('decIn').value='';renderDecode(null)">ล้าง</button>
+      </div>
+      <div class="warn-box" style="margin-top:14px">
+        ⚠ LAC/CI ในงาน trace มักเป็น <b>hex</b> — ต้องแปลงเป็น decimal ก่อน lookup ในระบบผู้ให้บริการ<br>
+        PLMN แบบ BCD จะมี nibble สลับ + filler <code>f</code> เมื่อ MNC มี 2 หลัก
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2><span class="num">02</span>ผลถอดรหัส</h2>
+      <div class="hint">คลิก "➕ ลงแผนที่" เพื่อส่งเซลล์ไปโมดูลแผนที่ (ต้องกรอกพิกัดเพิ่ม)</div>
+      <div id="decResult">
+        <div class="result-empty">— ยังไม่มีผลลัพธ์ — ป้อนค่าแล้วกดถอดรหัส —</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="batchPanel" style="margin-top:16px;display:none">
+    <h2><span class="num">03</span>ผล batch <span id="batchCount" class="tech-pill" style="color:var(--gold-lt);margin-left:8px"></span></h2>
+    <div class="tbl-wrap" style="margin-top:12px">
+      <table id="batchTbl"><thead><tr>
+        <th>#</th><th>Input</th><th>PLMN</th><th>Operator</th><th>LAC</th><th>CI</th><th>Tech</th><th>eNB/RNC</th><th>Sector</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    <div class="btn-row"><button class="btn btn-ghost btn-sm" onclick="copyBatchCsv()">📋 คัดลอกเป็น CSV</button></div>
+  </div>
+</section>
+
+<!-- ============ SEARCH TOWER ============ -->
+<section class="view" id="view-search">
+  <div class="grid g-decode">
+    <div class="panel">
+      <h2><span class="num">01</span>ค้นหาพิกัดเสาจาก Cell ID</h2>
+      <div class="hint">ลำดับค้นหา: ฐานข้อมูลในเครื่อง (CSV) → OpenCellID API (ออนไลน์)</div>
+
+      <label class="fld">PLMN (MCC-MNC) — พิมพ์รวมหรือแยกก็ได้</label>
+      <div class="inline-flds">
+        <input type="text" id="sMcc" placeholder="MCC 520" value="520">
+        <input type="text" id="sMnc" placeholder="MNC 03">
+      </div>
+      <div class="inline-flds" style="margin-top:10px">
+        <div>
+          <label class="fld" id="sLacLbl">LAC / TAC (decimal)</label>
+          <input type="number" id="sLac" placeholder="8599">
+        </div>
+        <div>
+          <label class="fld">CI / Cell ID (decimal)</label>
+          <input type="number" id="sCi" placeholder="480237">
+        </div>
+      </div>
+      <label class="fld">Radio</label>
+      <select id="sRadio" onchange="syncLacLabel()">
+        <option value="LTE">4G / LTE (ใช้ TAC)</option>
+        <option value="NR">5G / NR (ใช้ TAC)</option>
+        <option value="UMTS">3G / UMTS (ใช้ LAC)</option>
+        <option value="GSM">2G / GSM (ใช้ LAC)</option>
+      </select>
+
+      <div class="btn-row">
+        <button class="btn btn-gold" onclick="searchTower()">🔍 ค้นหา</button>
+        <button class="btn btn-ghost" onclick="fromDecoderToSearch()">↩ ดึงค่าจาก Decoder</button>
+      </div>
+      <div class="warn-box" id="apiWarn" style="display:none"></div>
+
+      <details style="margin-top:16px">
+        <summary style="cursor:pointer;color:var(--gold-lt);font-weight:600;font-size:13px">⚙ ตั้งค่า OpenCellID / ฐานข้อมูล</summary>
+        <label class="fld">OpenCellID API Key</label>
+        <input type="text" id="ocKey" placeholder="pk.xxxxxxxx" onchange="saveSettings()">
+        <label class="fld">Proxy URL (ถ้า CORS ถูกบล็อก — วาง endpoint VPS ของคุณ)</label>
+        <input type="text" id="ocProxy" placeholder="https://your-vps/api/opencellid?" onchange="saveSettings()">
+        <div class="ref-note" style="margin-top:10px;font-size:12px">
+          OpenCellID มักไม่ส่ง CORS header — เรียกจาก browser ตรงๆ อาจโดนบล็อก<br>
+          ทางแก้: proxy เล็กๆ บน Express VPS ที่ forward ไป <code>opencellid.org/cell/get</code> แล้วเติม header <code>Access-Control-Allow-Origin</code>
+        </div>
+        <label class="fld" style="margin-top:12px">นำเข้าฐานข้อมูลเสา (CSV)</label>
+        <div class="hint" style="margin-bottom:6px">คอลัมน์: mcc,mnc,lac/tac,cellid/ci,lat,lon[,name,az,tech] — จับคู่อัตโนมัติ</div>
+        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('siteCsv').click()">📂 เลือกไฟล์ CSV</button>
+        <input type="file" id="siteCsv" accept=".csv,.txt" style="display:none" onchange="importSiteCsv(event)">
+        <span id="siteDbStat" style="font-size:12px;color:var(--ink-mut);margin-left:8px"></span>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h2><span class="num">02</span>ผลค้นหา</h2>
+      <div class="hint">แหล่งข้อมูลจะถูกระบุ (local / OpenCellID) พร้อมความแม่นยำ</div>
+      <div id="searchResult"><div class="result-empty">— ป้อน Cell ID แล้วกดค้นหา —</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MAP ============ -->
+<section class="view" id="view-map">
+  <div class="grid" style="grid-template-columns:1fr 340px;gap:16px" id="mapGrid">
+    <div class="panel" style="padding:14px">
+      <div class="map-toolbar">
+        <label class="toggle"><input type="checkbox" id="tgSector" checked onchange="redrawMap()"> ทิศเซกเตอร์ (azimuth)</label>
+        <label class="toggle"><input type="checkbox" id="tgLabel" checked onchange="redrawMap()"> ป้ายชื่อ</label>
+        <label class="toggle"><input type="checkbox" id="tgTa" onchange="redrawMap()"> วง TA (Timing Advance)</label>
+        <label class="toggle"><input type="checkbox" id="tgTri" onchange="redrawMap()"> ประเมินตำแหน่ง (triangulation)</label>
+        <span style="margin-left:auto"></span>
+        <button class="btn btn-ghost btn-sm" onclick="fitMap()">⤢ พอดีจอ</button>
+        <select id="baseLayer" onchange="switchBase()" style="width:auto;padding:6px 30px 6px 10px">
+          <option value="osm">แผนที่ถนน</option>
+          <option value="sat">ดาวเทียม</option>
+          <option value="dark">มืด</option>
+        </select>
+      </div>
+      <div id="map"></div>
+      <div class="legend">
+        <span><span class="dot" style="background:var(--op-ais)"></span>AIS</span>
+        <span><span class="dot" style="background:var(--op-dtac)"></span>DTAC</span>
+        <span><span class="dot" style="background:var(--op-true)"></span>TRUE</span>
+        <span><span class="dot" style="background:var(--op-nt)"></span>NT/อื่นๆ</span>
+        <span style="margin-left:12px">◔ เซกเตอร์ = ทิศ+ลำแสง · ◯ วง = ระยะ TA · ✚ = จุดประเมิน</span>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel" style="padding:14px">
+        <h2 style="font-size:14px"><span class="num">＋</span>เพิ่มเสา / เซลล์</h2>
+        <div class="inline-flds">
+          <div><label class="fld">ชื่อ/Site ID</label><input type="text" id="fName" placeholder="HMKPM"></div>
+          <div><label class="fld">Operator</label>
+            <select id="fOp"><option>AIS</option><option>DTAC</option><option>TRUE</option><option>NT</option><option>อื่นๆ</option></select>
+          </div>
+        </div>
+        <div class="inline-flds">
+          <div><label class="fld">Latitude</label><input type="number" id="fLat" step="any" placeholder="16.4419"></div>
+          <div><label class="fld">Longitude</label><input type="number" id="fLng" step="any" placeholder="102.8360"></div>
+        </div>
+        <div class="inline-flds">
+          <div><label class="fld">LAC / TAC</label><input type="number" id="fLac" placeholder="8599"></div>
+          <div><label class="fld">CI (decimal)</label><input type="number" id="fCi" placeholder="480237"></div>
+        </div>
+        <div class="inline-flds">
+          <div><label class="fld">ทิศเสา ° (azimuth)</label><input type="number" id="fAz" placeholder="0-359" min="0" max="359"></div>
+          <div><label class="fld">ลำแสง ° (beam)</label><input type="number" id="fBeam" value="65"></div>
+        </div>
+        <div class="inline-flds">
+          <div><label class="fld">Tech</label><select id="fTech"><option>4G</option><option>5G</option><option>3G</option><option>2G</option></select></div>
+          <div><label class="fld">รัศมี m (ประเมิน)</label><input type="number" id="fRad" value="900"></div>
+        </div>
+        <div class="inline-flds">
+          <div><label class="fld">TA (optional)</label><input type="number" id="fTa" placeholder="เช่น 4"></div>
+          <div><label class="fld">น้ำหนัก (triang.)</label><input type="number" id="fW" value="1" step="0.1"></div>
+        </div>
+        <div class="btn-row"><button class="btn btn-gold btn-sm" onclick="addTower()">➕ เพิ่มลงแผนที่</button>
+          <button class="btn btn-ghost btn-sm" onclick="geocodeHint()">📍 พิกัด?</button></div>
+      </div>
+
+      <div class="panel" style="padding:14px;margin-top:14px">
+        <h2 style="font-size:14px"><span class="num">≡</span>รายการเซลล์ <span id="twCount" class="stat-chip" style="margin-left:6px"></span></h2>
+        <div class="tw-list" id="twList" style="margin-top:10px"></div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:8px;width:100%" onclick="clearTowers()">🗑 ล้างทั้งหมด</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CDR ============ -->
+<section class="view" id="view-cdr">
+  <div class="panel">
+    <h2><span class="num">01</span>นำเข้า CDR / Log การเชื่อมต่อ</h2>
+    <div class="hint">วางข้อมูล CSV (มี header) — auto-map คอลัมน์: datetime, lac, ci/cgi, lat, lng, direction, target, imsi, ta</div>
+    <textarea id="cdrIn" style="min-height:130px" placeholder="datetime,lac,ci,lat,lng,direction,target,ta&#10;2568-05-01 08:14:22,8599,480237,16.4419,102.8360,OUT,0866315721,4&#10;2568-05-01 09:02:10,1605,43276,16.4501,102.8402,IN,0812345678,2"></textarea>
+    <div class="btn-row">
+      <button class="btn btn-gold" onclick="parseCdr()">▸ วิเคราะห์</button>
+      <button class="btn btn-ghost" onclick="cdrSample()">ตัวอย่าง</button>
+      <button class="btn btn-ghost" onclick="clearCdr()">ล้าง</button>
+    </div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 360px;gap:16px;margin-top:16px" id="cdrGrid">
+    <div class="panel" style="padding:14px">
+      <h2 style="font-size:14px"><span class="num">02</span>เส้นทางการเคลื่อนที่ (movement path)</h2>
+      <div id="cdrmap" style="margin-top:10px"></div>
+    </div>
+    <div class="panel" style="padding:14px">
+      <h2 style="font-size:14px"><span class="num">03</span>สรุป</h2>
+      <div id="cdrSummary" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2 style="font-size:14px"><span class="num">04</span>Timeline</h2>
+    <div class="tbl-wrap" style="margin-top:10px">
+      <table id="cdrTbl"><thead><tr>
+        <th>#</th><th>วันเวลา</th><th>ทิศ</th><th>ปลายทาง</th><th>LAC</th><th>CI</th><th>พิกัด</th><th>TA≈ระยะ</th><th></th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TOOLS ============ -->
+<section class="view" id="view-tools">
+  <div class="tool-grid">
+    <div class="panel">
+      <h2 style="font-size:14px">⇄ Hex ⇄ Decimal</h2>
+      <div class="hint">แปลง LAC/CI ไปมา</div>
+      <label class="fld">Hex</label><input type="text" id="hxIn" placeholder="753ED" oninput="hexdec('hex')">
+      <label class="fld">Decimal</label><input type="text" id="dcIn" placeholder="480237" oninput="hexdec('dec')">
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px">📏 Timing Advance → ระยะ</h2>
+      <div class="hint">ประเมินระยะจากเสาถึงเป้าหมาย</div>
+      <div class="inline-flds">
+        <div><label class="fld">Tech</label><select id="taTech" onchange="calcTa()">
+          <option value="550">GSM (550 m/unit)</option>
+          <option value="78.12">LTE (78.12 m/unit)</option>
+          <option value="acc">NR/อื่นๆ (กำหนดเอง)</option></select></div>
+        <div><label class="fld">ค่า TA</label><input type="number" id="taVal" value="4" oninput="calcTa()"></div>
+      </div>
+      <div id="taCustom" style="display:none"><label class="fld">เมตร/หน่วย</label><input type="number" id="taUnit" value="80" oninput="calcTa()"></div>
+      <div class="big-out" id="taOut">—</div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px">🧩 แยกโครงสร้าง Cell ID</h2>
+      <div class="hint">ดึง eNB/gNB/RNC และหมายเลข sector</div>
+      <div class="inline-flds">
+        <div><label class="fld">CI (decimal)</label><input type="number" id="ciDec" value="480237" oninput="decompCi()"></div>
+        <div><label class="fld">Tech</label><select id="ciTech" onchange="decompCi()">
+          <option value="4G">LTE (÷256)</option><option value="5G">NR (÷256)</option>
+          <option value="3G">UMTS (÷65536)</option></select></div>
+      </div>
+      <div id="ciDecomp" style="margin-top:6px"></div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px">📐 ระยะ + ทิศ (2 จุด)</h2>
+      <div class="hint">Haversine + bearing</div>
+      <div class="inline-flds">
+        <div><label class="fld">Lat 1</label><input type="number" id="d1la" step="any" placeholder="16.4419" oninput="calcDist()"></div>
+        <div><label class="fld">Lng 1</label><input type="number" id="d1lo" step="any" placeholder="102.8360" oninput="calcDist()"></div>
+      </div>
+      <div class="inline-flds">
+        <div><label class="fld">Lat 2</label><input type="number" id="d2la" step="any" placeholder="16.4501" oninput="calcDist()"></div>
+        <div><label class="fld">Lng 2</label><input type="number" id="d2lo" step="any" placeholder="102.8402" oninput="calcDist()"></div>
+      </div>
+      <div class="big-out" id="distOut">—</div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px">🎯 ประเมินตำแหน่ง (weighted centroid)</h2>
+      <div class="hint">ใช้เสาที่เพิ่มในแผนที่ทั้งหมด (ถ่วงน้ำหนัก)</div>
+      <div class="big-out" id="triOut" style="font-size:16px">—</div>
+      <div class="btn-row"><button class="btn btn-gold btn-sm" onclick="calcTri()">คำนวณจากเสาในแผนที่</button></div>
+      <div class="ref-note" style="margin-top:10px">การประเมินนี้เป็น <b>ศูนย์ถ่วงน้ำหนัก</b> ของเสาที่จับสัญญาณ ควรใช้ร่วมกับ TA + azimuth เพื่อจำกัดวง — ไม่ใช่พิกัดแม่นยำ</div>
+    </div>
+
+    <div class="panel">
+      <h2 style="font-size:14px">🔢 MSISDN / IMSI helper</h2>
+      <div class="hint">แยก CC / NDC + mask</div>
+      <label class="fld">MSISDN (66…)</label><input type="text" id="msIn" placeholder="66866315721" oninput="parseMsisdn()">
+      <div id="msOut" style="margin-top:8px"></div>
+    </div>
+    <div class="panel">
+      <h2 style="font-size:14px">🌐 แปลงพิกัด (WGS84 → DMS/UTM/MGRS)</h2>
+      <div class="hint">ใช้กับพิกัดเสา/จุดเป้าหมาย</div>
+      <div class="inline-flds">
+        <div><label class="fld">Latitude</label><input type="number" id="cvLat" step="any" placeholder="16.4419" oninput="convCoord()"></div>
+        <div><label class="fld">Longitude</label><input type="number" id="cvLng" step="any" placeholder="102.8360" oninput="convCoord()"></div>
+      </div>
+      <div id="cvOut" style="margin-top:10px"></div>
+    </div>
+  </div>
+</section>
+<section class="view" id="view-ref">
+  <div class="grid g2">
+    <div class="panel">
+      <h2><span class="num">01</span>ตาราง PLMN ผู้ให้บริการไทย (MCC 520)</h2>
+      <div class="hint">แก้ไข/เพิ่มได้ตามข้อมูลจริงในพื้นที่ — โค้ดตามใบอนุญาต ไม่ใช่ตามแบรนด์ปัจจุบัน</div>
+      <div class="tbl-wrap"><table id="plmnTbl"><thead><tr><th>PLMN</th><th>MNC</th><th>ผู้ให้บริการ / นิติบุคคล</th><th>หมายเหตุ</th></tr></thead><tbody></tbody></table></div>
+      <div class="ref-note">หลังการควบรวม <b>TRUE–DTAC (2566)</b> เป็น True Corporation และ <b>TOT–CAT</b> เป็น <b>NT</b> โค้ด PLMN ยังคงแยกตามใบอนุญาตเดิม จึงพบหลายโค้ดของกลุ่มเดียวกัน</div>
+    </div>
+    <div class="panel">
+      <h2><span class="num">02</span>สูตร &amp; ค่าคงที่ที่ใช้บ่อย</h2>
+      <div class="ref-note">
+        <b>โครงสร้าง CGI</b> = MCC + MNC + LAC + CI<br>
+        &nbsp;• 2G/3G: LAC (16-bit) + CI (16-bit) &nbsp; • 4G: TAC + ECI (28-bit)<br><br>
+        <b>PLMN แบบ BCD (swapped nibble)</b><br>
+        &nbsp;<code>25 f0 50</code> → สลับต่อ byte → <code>52 0f 05</code><br>
+        &nbsp;MCC = 520 · MNC = 05 (<code>f</code> = filler เมื่อ MNC 2 หลัก)<br><br>
+        <b>LAC/CI</b> = แปลง hex → decimal ตรงๆ<br>
+        &nbsp;<code>0x2197</code>=8599 · <code>0x753ED</code>=480237<br><br>
+        <b>แยก Cell ID</b><br>
+        &nbsp;• LTE: eNB = ⌊ECI/256⌋ · Sector = ECI mod 256<br>
+        &nbsp;• UMTS: RNC = ⌊CI/65536⌋ · CID = CI mod 65536<br><br>
+        <b>Timing Advance → ระยะ</b><br>
+        &nbsp;• GSM ≈ 550 m/หน่วย (0–63 → สูงสุด ~35 km)<br>
+        &nbsp;• LTE ≈ 78.12 m/หน่วย<br><br>
+        <b>เซกเตอร์มาตรฐาน 3 sector</b> azimuth 0°/120°/240° · beam 65°
+      </div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:16px">
+    <h2><span class="num">03</span>Workflow งานสืบสวน (checklist)</h2>
+    <div class="ref-note">
+      1. รับค่า CGI/serving cell จาก trace หรือหมายเรียกข้อมูลผู้ให้บริการ<br>
+      2. ถอดรหัส PLMN/LAC/CI (แท็บ Decoder) — ระบุ operator + tech<br>
+      3. ขอพิกัดเสา (site DB ของ operator) → กรอกในแท็บแผนที่ พร้อม azimuth/beam<br>
+      4. หากมี TA → เปิดวง TA เพื่อจำกัดระยะบนเซกเตอร์<br>
+      5. นำเข้า CDR → สร้างเส้นทางการเคลื่อนที่ + timeline<br>
+      6. หลายเซลล์พร้อมกัน → ประเมินตำแหน่ง (triangulation)<br>
+      7. Export โครงงานเพื่อแนบสำนวน
+    </div>
+    <div style="margin-top:10px">
+      <span class="tag">CGI</span><span class="tag">LAC/CI</span><span class="tag">PLMN</span><span class="tag">Timing Advance</span>
+      <span class="tag">Azimuth</span><span class="tag">eNB/gNB</span><span class="tag">Triangulation</span><span class="tag">CDR</span>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>CellMapper Forensic · ระบบวิเคราะห์แผนที่สัญญาณเพื่อการสืบสวน · <b>by.MerCy-TKM</b> · Anachak AI / อาณาจักร เอไอ</footer>
+<div class="toast" id="toast"></div>
+<div class="update-bar" id="updateBar">
+  <b>มีเวอร์ชันใหม่</b><span style="color:var(--ink-mut)">รีโหลดเพื่ออัปเดต</span>
+  <button class="btn btn-gold btn-sm" style="margin-left:auto" onclick="applyUpdate()">อัปเดตเดี๋ยวนี้</button>
+  <button class="btn btn-ghost btn-sm" onclick="document.getElementById('updateBar').classList.remove('show')">ภายหลัง</button>
+</div>
+
+<script>
+/* ============================================================
+   CellMapper Forensic — core engine
+   by.MerCy-TKM
+============================================================ */
+
+/* ---------- Thai date (พ.ศ.) ---------- */
+const TH_MON=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function fmtThaiDate(d){ if(!(d instanceof Date)||isNaN(d))return '-';
+  return `${d.getDate()} ${TH_MON[d.getMonth()]} ${d.getFullYear()+543} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;}
+function maskCid(s){ s=String(s); if(s.length<6)return s; return s.slice(0,4)+'x'.repeat(s.length-7)+s.slice(-3);}
+
+/* ---------- Operator PLMN table (แก้ไขได้) ---------- */
+const PLMN_TH={
+  '00':{op:'NT',ent:'CAT / my by NT',note:'3G 850'},
+  '01':{op:'AIS',ent:'AIS (legacy GSM)',note:'สำรอง'},
+  '03':{op:'AIS',ent:'AWN — Advanced Wireless Network',note:'หลัก'},
+  '04':{op:'TRUE',ent:'True Move H / Real Future',note:'หลัก'},
+  '05':{op:'DTAC',ent:'dtac TriNet (DTN)',note:'หลัก'},
+  '09':{op:'NT',ent:'NT / TOT',note:''},
+  '15':{op:'NT',ent:'TOT 3G / NT',note:''},
+  '18':{op:'DTAC',ent:'Total Access Communication',note:'legacy 2G'},
+  '20':{op:'อื่นๆ',ent:'WE / ACT Mobile',note:''},
+  '23':{op:'AIS',ent:'Digital Phone (DPC)',note:'legacy'},
+  '25':{op:'TRUE',ent:'True Move (เดิม)',note:'legacy'},
+  '47':{op:'NT',ent:'TOT 3G',note:''},
+  '99':{op:'TRUE',ent:'True Move (เดิม CAT)',note:'legacy'}
+};
+const OP_COLOR={AIS:'#4aa3e0',DTAC:'#3fbf8f',TRUE:'#e04b6a',NT:'#c9a227','อื่นๆ':'#8fa3c4'};
+function opColor(op){return OP_COLOR[op]||'#8fa3c4';}
+
+/* ---------- Decode core ---------- */
+function swapNibblePlmn(hex6){
+  hex6=hex6.toLowerCase().replace(/[^0-9a-f]/g,'');
+  if(hex6.length!==6)return null;
+  let s='';for(let i=0;i<6;i+=2)s+=hex6[i+1]+hex6[i]; // swap each byte
+  const mcc=s.substr(0,3);
+  const mnc=(s[3]==='f')?s.substr(4,2):(s[4]+s[5]+s[3]);
+  return {mcc,mnc};
+}
+function decPlmn(str){ // "52003" or "520 03"
+  str=str.replace(/\s+/g,'');
+  if(str.length===5)return {mcc:str.substr(0,3),mnc:str.substr(3,2)};
+  if(str.length===6)return {mcc:str.substr(0,3),mnc:str.substr(3,3)};
+  return null;
+}
+function lookupOp(mcc,mnc){
+  if(mcc!=='520')return {op:'อื่นๆ',ent:'MCC '+mcc+' (ไม่ใช่ไทย)',note:''};
+  return PLMN_TH[mnc]||{op:'อื่นๆ',ent:'MNC '+mnc+' ไม่ทราบ',note:''};
+}
+function guessTech(ci){ ci=+ci; if(ci>65535)return '4G'; if(ci>0)return '2G/3G'; return '?'; }
+
+// main dispatcher: return {input, mcc, mnc, op, ent, lacHex, lacDec, ciHex, ciDec, tech, chain[]}
+function decodeOne(raw, fmt, techSel){
+  raw=raw.trim(); if(!raw)return null;
+  let chain=[], mcc,mnc,lacHex,lacDec,ciHex,ciDec;
+  const clean=raw.replace(/,/g,' ').replace(/\s+/g,' ').trim();
+  const toks=clean.split(' ');
+  const singleHex=clean.replace(/\s/g,'');
+
+  function fromHexPair(lh,ch){ lacHex=lh.toUpperCase(); lacDec=parseInt(lh,16);
+    ciHex=ch.toUpperCase(); ciDec=parseInt(ch,16); }
+
+  let mode=fmt;
+  if(fmt==='auto'){
+    if(/^[0-9a-f]{14,15}$/i.test(singleHex) && /[a-f]/i.test(singleHex.substr(0,6))) mode='cgi_bcd';
+    else if(toks.length>=2 && /^\d{5,6}$/.test(toks[0])) mode='dec_hex';
+    else if(toks.length>=3 && /[a-f]/i.test(toks[0])) mode='split_bcd';
+    else if(/^[0-9a-f]{6}/i.test(singleHex) && /[a-f]/i.test(singleHex.substr(0,6))) mode='cgi_bcd';
+    else mode='dec_hex';
+  }
+
+  if(mode==='cgi_bcd'){
+    const h=singleHex;
+    const p=swapNibblePlmn(h.substr(0,6));
+    if(!p)return {input:raw,error:'PLMN ไม่ครบ 6 hex'};
+    mcc=p.mcc;mnc=p.mnc;
+    const lh=h.substr(6,4), ch=h.substr(10);
+    fromHexPair(lh,ch);
+    chain=[
+      ['PLMN', h.substr(0,6)+' → สลับ nibble → '+ (mcc)+'/'+mnc],
+      ['LAC', '0x'+lh.toUpperCase()+' → '+lacDec],
+      ['CI',  '0x'+ch.toUpperCase()+' → '+ciDec]
+    ];
+  }
+  else if(mode==='split_bcd'){
+    const p=swapNibblePlmn(toks[0]);
+    if(!p)return {input:raw,error:'PLMN(BCD) ต้อง 6 hex'};
+    mcc=p.mcc;mnc=p.mnc; fromHexPair(toks[1],toks[2]);
+    chain=[['PLMN',toks[0]+' → '+mcc+'/'+mnc],['LAC','0x'+toks[1].toUpperCase()+' → '+lacDec],['CI','0x'+toks[2].toUpperCase()+' → '+ciDec]];
+  }
+  else if(mode==='dec_hex'){
+    const p=decPlmn(toks[0]);
+    if(!p)return {input:raw,error:'PLMN decimal ต้อง 5-6 หลัก'};
+    mcc=p.mcc;mnc=p.mnc;
+    let lh,ch;
+    if(toks.length>=3){lh=toks[1];ch=toks[2];}
+    else if(toks.length===2){ // ก้อนรวม "2197753ED" → LAC 4 ตัวแรก, CI ที่เหลือ
+      const g=toks[1]; lh=g.substr(0,4); ch=g.substr(4);
+    } else return {input:raw,error:'ขาด LAC/CI'};
+    fromHexPair(lh,ch);
+    chain=[['PLMN',toks[0]+' (decimal) → '+mcc+'/'+mnc],
+      ['แยก field', (toks.length===2? toks[1]+' → '+lh+' | '+ch : lh+' | '+ch)],
+      ['LAC','0x'+lh.toUpperCase()+' → '+lacDec],['CI','0x'+ch.toUpperCase()+' → '+ciDec]];
+  }
+  else if(mode==='dec_dec'){
+    const p=decPlmn(toks[0]); if(!p)return {input:raw,error:'PLMN ผิดรูป'};
+    mcc=p.mcc;mnc=p.mnc; lacDec=+toks[1];ciDec=+toks[2];
+    lacHex=lacDec.toString(16).toUpperCase();ciHex=ciDec.toString(16).toUpperCase();
+    chain=[['PLMN',toks[0]+' → '+mcc+'/'+mnc],['LAC',lacDec+' (decimal)'],['CI',ciDec+' (decimal)']];
+  }
+
+  const info=lookupOp(mcc,mnc);
+  let tech = techSel==='auto'? guessTech(ciDec): techSel;
+  // decompose
+  let dec={};
+  if(tech==='4G'||tech==='5G'){dec.node=Math.floor(ciDec/256);dec.sector=ciDec%256;dec.nodeLbl=tech==='5G'?'gNB':'eNB';}
+  else if(tech==='3G'){dec.node=Math.floor(ciDec/65536);dec.sector=ciDec%65536;dec.nodeLbl='RNC';}
+  return {input:raw,mcc,mnc,op:info.op,ent:info.ent,note:info.note,
+    lacHex,lacDec,ciHex,ciDec,tech,dec,chain};
+}
+
+/* ---------- Decode UI ---------- */
+let lastDecode=null;
+function runDecode(){
+  const txt=document.getElementById('decIn').value.trim();
+  const fmt=document.getElementById('decFmt').value;
+  const tech=document.getElementById('decTech').value;
+  if(!txt){toast('ยังไม่ได้ป้อนค่า');return;}
+  const lines=txt.split('\n').map(l=>l.trim()).filter(Boolean);
+  const results=lines.map(l=>decodeOne(l,fmt,tech));
+  lastDecode=results[0];
+  renderDecode(results[0]);
+  if(results.length>1)renderBatch(results); else document.getElementById('batchPanel').style.display='none';
+}
+function renderDecode(r){
+  const el=document.getElementById('decResult');
+  if(!r){el.innerHTML='<div class="result-empty">— ยังไม่มีผลลัพธ์ —</div>';return;}
+  if(r.error){el.innerHTML=`<div class="warn-box">❌ ${r.error}<br><code>${r.input}</code></div>`;return;}
+  const c=opColor(r.op);
+  const techColor={'2G':'#8fa3c4','2G/3G':'#8fa3c4','3G':'#e6a919','4G':'#4aa3e0','5G':'#e04b6a'}[r.tech]||'#8fa3c4';
+  const lacLbl=(r.tech==='4G'||r.tech==='5G')?'TAC':'LAC';
+  let decRow='';
+  if(r.dec&&r.dec.node!==undefined){
+    decRow=`<div class="k">${r.dec.nodeLbl} / Sector</div><div class="v"><b>${r.dec.node}</b> <span class="hex">/ sector</span> <b>${r.dec.sector}</b></div>`;
+  }
+  el.innerHTML=`
+    <div class="res-head">
+      <div class="op-badge" style="background:${c}">${r.op==='อื่นๆ'?'?':r.op[0]}</div>
+      <div><div class="rh-t">${r.op}</div><div class="rh-s">${r.ent}</div></div>
+      <div class="tech-pill" style="color:${techColor}">${r.tech}</div>
+    </div>
+    <div class="kv">
+      <div class="k">MCC / MNC</div><div class="v"><b>${r.mcc}</b> / <b>${r.mnc}</b> <span class="copy" onclick="copyTxt('${r.mcc}${r.mnc}')">copy PLMN</span></div>
+      <div class="k">${lacLbl}</div><div class="v"><b>${r.lacDec}</b> <span class="hex">(0x${r.lacHex})</span> <span class="copy" onclick="copyTxt('${r.lacDec}')">copy</span></div>
+      <div class="k">CI / Cell ID</div><div class="v"><b>${r.ciDec}</b> <span class="hex">(0x${r.ciHex})</span> <span class="copy" onclick="copyTxt('${r.ciDec}')">copy</span></div>
+      ${decRow}
+    </div>
+    <div class="chain">${r.chain.map(s=>`<div><span class="lbl">${s[0].padEnd(9,' ')}</span> <span class="arw">›</span> <span class="step">${s[1]}</span></div>`).join('')}</div>
+    <div class="btn-row"><button class="btn btn-gold btn-sm" onclick="decodeToMap()">➕ ส่งไปแผนที่</button>
+      <button class="btn btn-ghost btn-sm" onclick="copyTxt('${r.mcc}${r.mnc} ${r.lacDec} ${r.ciDec}')">📋 คัดลอกทั้งชุด</button></div>`;
+}
+function renderBatch(results){
+  const p=document.getElementById('batchPanel');p.style.display='block';
+  document.getElementById('batchCount').textContent=results.length+' รายการ';
+  const tb=document.querySelector('#batchTbl tbody');tb.innerHTML='';
+  results.forEach((r,i)=>{
+    const tr=document.createElement('tr');
+    if(r.error){tr.innerHTML=`<td>${i+1}</td><td>${r.input}</td><td colspan="8" style="color:var(--bad)">${r.error}</td>`;}
+    else{
+      const node=r.dec&&r.dec.node!==undefined?r.dec.node:'-';
+      const sec=r.dec&&r.dec.sector!==undefined?r.dec.sector:'-';
+      tr.innerHTML=`<td>${i+1}</td><td style="max-width:150px;overflow:hidden;text-overflow:ellipsis">${r.input}</td>
+        <td>${r.mcc}${r.mnc}</td><td class="t-op" style="color:${opColor(r.op)}">${r.op}</td>
+        <td>${r.lacDec}</td><td>${r.ciDec}</td><td>${r.tech}</td><td>${node}</td><td>${sec}</td>
+        <td><span class="mini-act" onclick='batchToMap(${JSON.stringify(r).replace(/'/g,"&#39;")})'>➕map</span></td>`;
+    }
+    tb.appendChild(tr);
+  });
+  window._lastBatch=results;
+}
+function copyBatchCsv(){
+  if(!window._lastBatch)return;
+  let csv='input,plmn,operator,lac,ci,tech,node,sector\n';
+  window._lastBatch.forEach(r=>{ if(r.error)return;
+    csv+=`"${r.input}",${r.mcc}${r.mnc},${r.op},${r.lacDec},${r.ciDec},${r.tech},${r.dec.node??''},${r.dec.sector??''}\n`;});
+  copyTxt(csv);toast('คัดลอก CSV แล้ว');
+}
+function fillSample(){document.getElementById('decIn').value='25f0500645a90c\n52003 2197 753ED\n52003 2197753ED\n25f050 0645 a90c';}
+function fillSample2(){}
+
+/* send decode → map form */
+function decodeToMap(){
+  if(!lastDecode||lastDecode.error)return;
+  switchView('map');
+  document.getElementById('fLac').value=lastDecode.lacDec;
+  document.getElementById('fCi').value=lastDecode.ciDec;
+  document.getElementById('fOp').value=lastDecode.op==='อื่นๆ'?'อื่นๆ':lastDecode.op;
+  document.getElementById('fTech').value=(lastDecode.tech==='2G/3G'?'3G':lastDecode.tech);
+  document.getElementById('fName').value=lastDecode.op+'-'+lastDecode.ciDec;
+  toast('ส่งค่าไปฟอร์มแผนที่แล้ว — กรอกพิกัด');
+  document.getElementById('fLat').focus();
+}
+function batchToMap(r){
+  switchView('map');
+  document.getElementById('fLac').value=r.lacDec;
+  document.getElementById('fCi').value=r.ciDec;
+  document.getElementById('fOp').value=r.op==='อื่นๆ'?'อื่นๆ':r.op;
+  document.getElementById('fName').value=r.op+'-'+r.ciDec;
+  toast('ส่งไปฟอร์มแผนที่แล้ว');
+}
+
+/* ============================================================
+   MAP MODULE
+============================================================ */
+let map,cdrMapObj,towers=[],layerGroup,baseLayers={},curBase;
+function initMap(){
+  map=L.map('map',{zoomControl:true}).setView([16.4419,102.8360],12);
+  baseLayers.osm=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OSM'});
+  baseLayers.sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'© Esri'});
+  baseLayers.dark=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© Carto'});
+  baseLayers.osm.addTo(map);curBase=baseLayers.osm;
+  layerGroup=L.layerGroup().addTo(map);
+}
+function switchBase(){
+  const v=document.getElementById('baseLayer').value;
+  map.removeLayer(curBase);curBase=baseLayers[v];curBase.addTo(map);
+}
+function destPoint(lat,lng,brgDeg,distM){
+  const R=6371000,br=brgDeg*Math.PI/180,d=distM/R;
+  const la1=lat*Math.PI/180,lo1=lng*Math.PI/180;
+  const la2=Math.asin(Math.sin(la1)*Math.cos(d)+Math.cos(la1)*Math.sin(d)*Math.cos(br));
+  const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(d)*Math.cos(la1),Math.cos(d)-Math.sin(la1)*Math.sin(la2));
+  return [la2*180/Math.PI,lo2*180/Math.PI];
+}
+function haversine(a,b,c,d){
+  const R=6371000,dLa=(c-a)*Math.PI/180,dLo=(d-b)*Math.PI/180;
+  const s=Math.sin(dLa/2)**2+Math.cos(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.sin(dLo/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+function bearing(a,b,c,d){
+  const y=Math.sin((d-b)*Math.PI/180)*Math.cos(c*Math.PI/180);
+  const x=Math.cos(a*Math.PI/180)*Math.sin(c*Math.PI/180)-Math.sin(a*Math.PI/180)*Math.cos(c*Math.PI/180)*Math.cos((d-b)*Math.PI/180);
+  return (Math.atan2(y,x)*180/Math.PI+360)%360;
+}
+function sectorPoly(lat,lng,az,beam,rad){
+  const pts=[[lat,lng]];const start=az-beam/2,end=az+beam/2,steps=26;
+  for(let i=0;i<=steps;i++){pts.push(destPoint(lat,lng,start+(end-start)*i/steps,rad));}
+  pts.push([lat,lng]);return pts;
+}
+function taDistance(tech,ta){const u=tech==='2G'?550:78.12;return ta*u;}
+
+function addTower(){
+  const lat=parseFloat(document.getElementById('fLat').value);
+  const lng=parseFloat(document.getElementById('fLng').value);
+  if(isNaN(lat)||isNaN(lng)){toast('ต้องกรอกพิกัด lat/lng');return;}
+  const t={
+    name:document.getElementById('fName').value||('CELL-'+(towers.length+1)),
+    op:document.getElementById('fOp').value, lat,lng,
+    lac:document.getElementById('fLac').value, ci:document.getElementById('fCi').value,
+    az:document.getElementById('fAz').value===''?null:+document.getElementById('fAz').value,
+    beam:+document.getElementById('fBeam').value||65,
+    tech:document.getElementById('fTech').value, rad:+document.getElementById('fRad').value||900,
+    ta:document.getElementById('fTa').value===''?null:+document.getElementById('fTa').value,
+    w:+document.getElementById('fW').value||1
+  };
+  towers.push(t);
+  ['fName','fLat','fLng','fLac','fCi','fAz','fTa'].forEach(id=>document.getElementById(id).value='');
+  redrawMap();renderTwList();updateChips();saveState();toast('เพิ่มเซลล์ '+t.name);
+  map.setView([t.lat,t.lng],14);
+}
+function redrawMap(){
+  if(!layerGroup)return;
+  layerGroup.clearLayers();
+  const showSec=document.getElementById('tgSector').checked;
+  const showLbl=document.getElementById('tgLabel').checked;
+  const showTa=document.getElementById('tgTa').checked;
+  towers.forEach(t=>{
+    const c=opColor(t.op);
+    // sector
+    if(showSec&&t.az!==null){
+      L.polygon(sectorPoly(t.lat,t.lng,t.az,t.beam,t.rad),{color:c,weight:1,fillColor:c,fillOpacity:.16}).addTo(layerGroup);
+    } else if(showSec){
+      L.circle([t.lat,t.lng],{radius:t.rad,color:c,weight:1,fillColor:c,fillOpacity:.10,dashArray:'4'}).addTo(layerGroup);
+    }
+    // TA ring
+    if(showTa&&t.ta!==null){
+      const d=taDistance(t.tech==='2G'?'2G':'4G',t.ta);
+      L.circle([t.lat,t.lng],{radius:d,color:'#e6c65a',weight:1.5,fill:false,dashArray:'6 4'}).addTo(layerGroup);
+      L.circle([t.lat,t.lng],{radius:Math.max(0,d-(t.tech==='2G'?550:78.12)),color:'#e6c65a',weight:1,fill:false,dashArray:'2 5',opacity:.5}).addTo(layerGroup);
+    }
+    // marker
+    const m=L.circleMarker([t.lat,t.lng],{radius:6,color:'#fff',weight:1.5,fillColor:c,fillOpacity:1}).addTo(layerGroup);
+    m.bindPopup(popupHtml(t));
+    if(showLbl){
+      L.marker([t.lat,t.lng],{icon:L.divIcon({className:'',html:`<div style="font:600 11px 'JetBrains Mono';color:${c};text-shadow:0 0 4px #000,0 0 4px #000;white-space:nowrap;transform:translate(10px,-8px)">${t.name}</div>`,iconSize:[0,0]})}).addTo(layerGroup);
+    }
+  });
+  if(document.getElementById('tgTri').checked&&towers.length>=2)drawTri();
+}
+function popupHtml(t){
+  return `<b>${t.name}</b> · ${t.op}<br>
+    <span class="pop-k">LAC/CI:</span> <span class="pop-v">${t.lac||'-'} / ${t.ci||'-'}</span><br>
+    <span class="pop-k">Tech:</span> <span class="pop-v">${t.tech}</span> ·
+    <span class="pop-k">Az:</span> <span class="pop-v">${t.az??'-'}°</span><br>
+    <span class="pop-k">พิกัด:</span> <span class="pop-v">${t.lat.toFixed(5)}, ${t.lng.toFixed(5)}</span>
+    ${t.ta!==null?`<br><span class="pop-k">TA:</span> <span class="pop-v">${t.ta} ≈ ${Math.round(taDistance(t.tech==='2G'?'2G':'4G',t.ta))} m</span>`:''}`;
+}
+function renderTwList(){
+  const el=document.getElementById('twList');
+  document.getElementById('twCount').textContent=towers.length;
+  if(!towers.length){el.innerHTML='<div class="tbl-empty">ยังไม่มีเซลล์</div>';return;}
+  el.innerHTML=towers.map((t,i)=>`
+    <div class="tw-item" onclick="focusTower(${i})" style="border-left-color:${opColor(t.op)}">
+      <div class="tw-top"><span class="tw-name">${t.name}</span>
+        <span class="tw-del" onclick="event.stopPropagation();delTower(${i})">✕ ลบ</span></div>
+      <div class="tw-meta">${t.op} · ${t.tech} · LAC ${t.lac||'-'} · CI ${t.ci||'-'} ${t.az!==null?'· '+t.az+'°':''}</div>
+    </div>`).join('');
+}
+function focusTower(i){map.setView([towers[i].lat,towers[i].lng],15);redrawMap();}
+function delTower(i){towers.splice(i,1);redrawMap();renderTwList();updateChips();saveState();}
+function clearTowers(){if(towers.length&&confirm('ลบเซลล์ทั้งหมด?')){towers=[];redrawMap();renderTwList();updateChips();saveState();}}
+function fitMap(){if(!towers.length){toast('ไม่มีเซลล์');return;}
+  const b=L.latLngBounds(towers.map(t=>[t.lat,t.lng]));map.fitBounds(b,{padding:[60,60],maxZoom:15});}
+function geocodeHint(){toast('พิกัดเสา: ขอจาก site DB ของ operator หรือ OpenCellID / cellmapper.net');}
+
+/* triangulation */
+let triMarker;
+function drawTri(){
+  const p=weightedCentroid();
+  if(!p)return;
+  L.marker([p.lat,p.lng],{icon:L.divIcon({className:'',html:'<div style="font:800 22px sans-serif;color:#e6c65a;text-shadow:0 0 6px #000;transform:translate(-8px,-14px)">✚</div>',iconSize:[0,0]})}).addTo(layerGroup)
+    .bindPopup(`<b>จุดประเมิน</b><br><span class="pop-v">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span><br><span class="pop-k">จาก ${towers.length} เซลล์ (weighted)</span>`);
+  L.circle([p.lat,p.lng],{radius:p.spread,color:'#e6c65a',weight:1,fillColor:'#e6c65a',fillOpacity:.08,dashArray:'4'}).addTo(layerGroup);
+}
+function weightedCentroid(){
+  const src=towers.filter(t=>!isNaN(t.lat)); if(src.length<2)return null;
+  let sw=0,sx=0,sy=0;
+  src.forEach(t=>{const w=t.w||1;sw+=w;sx+=t.lat*w;sy+=t.lng*w;});
+  const lat=sx/sw,lng=sy/sw;
+  let maxd=0;src.forEach(t=>{const d=haversine(lat,lng,t.lat,t.lng);if(d>maxd)maxd=d;});
+  return {lat,lng,spread:Math.min(maxd,3000)};
+}
+
+/* ============================================================
+   CDR MODULE
+============================================================ */
+let cdrRows=[];
+function parseCdr(){
+  const raw=document.getElementById('cdrIn').value.trim();
+  if(!raw){toast('ยังไม่มีข้อมูล CDR');return;}
+  const lines=raw.split('\n').filter(Boolean);
+  const head=lines[0].split(',').map(h=>h.trim().toLowerCase());
+  const idx=(names)=>{for(const n of names){const i=head.findIndex(h=>h.includes(n));if(i>=0)return i;}return -1;};
+  const iDt=idx(['datetime','date','time','วันเวลา']),iLac=idx(['lac']),iCi=idx(['ci','cid','cell']),
+    iCgi=idx(['cgi']),iLat=idx(['lat']),iLng=idx(['lng','lon','long']),iDir=idx(['direction','dir','type','ทิศ']),
+    iTgt=idx(['target','bnum','msisdn','ปลายทาง']),iTa=idx(['ta','timing']),iImsi=idx(['imsi']);
+  cdrRows=[];
+  for(let i=1;i<lines.length;i++){
+    const c=lines[i].split(',').map(x=>x.trim());
+    let lac=iLac>=0?c[iLac]:'',ci=iCi>=0?c[iCi]:'',lat=iLat>=0?parseFloat(c[iLat]):null,lng=iLng>=0?parseFloat(c[iLng]):null;
+    if(iCgi>=0&&c[iCgi]){const d=decodeOne(c[iCgi],'auto','auto');if(d&&!d.error){lac=d.lacDec;ci=d.ciDec;}}
+    // match tower for coords
+    if((isNaN(lat)||lat===null)){const m=towers.find(t=>String(t.lac)===String(lac)&&String(t.ci)===String(ci));if(m){lat=m.lat;lng=m.lng;}}
+    const dtRaw=iDt>=0?c[iDt]:'';
+    cdrRows.push({dt:parseDt(dtRaw),dtRaw,lac,ci,lat,lng,dir:iDir>=0?c[iDir]:'',tgt:iTgt>=0?c[iTgt]:'',ta:iTa>=0?c[iTa]:'',imsi:iImsi>=0?c[iImsi]:''});
+  }
+  cdrRows.sort((a,b)=>(a.dt||0)-(b.dt||0));
+  renderCdr();updateChips();saveState();toast('วิเคราะห์ '+cdrRows.length+' records');
+}
+function parseDt(s){
+  if(!s)return null;
+  // support พ.ศ. → ค.ศ.
+  let m=s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if(m){let y=+m[1];if(y>2400)y-=543;return new Date(y,+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0));}
+  const d=new Date(s);return isNaN(d)?null:d;
+}
+function renderCdr(){
+  const tb=document.querySelector('#cdrTbl tbody');tb.innerHTML='';
+  cdrRows.forEach((r,i)=>{
+    const taD=r.ta&&!isNaN(+r.ta)?`${r.ta} ≈ ${Math.round(taDistance('4G',+r.ta))}m`:'-';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td>${i+1}</td><td style="font-family:Sarabun">${r.dt?fmtThaiDate(r.dt):r.dtRaw||'-'}</td>
+      <td>${r.dir||'-'}</td><td>${r.tgt?maskCid(r.tgt):'-'}</td><td>${r.lac||'-'}</td><td>${r.ci||'-'}</td>
+      <td>${r.lat?r.lat.toFixed(4)+','+r.lng.toFixed(4):'<span style="color:var(--warn)">ไม่มีพิกัด</span>'}</td>
+      <td>${taD}</td>
+      <td>${r.lat?`<span class="mini-act" onclick="cdrFocus(${i})">▸ดู</span>`:''}</td>`;
+    tb.appendChild(tr);
+  });
+  renderCdrMap();renderCdrSummary();
+}
+function renderCdrMap(){
+  if(!cdrMapObj){
+    cdrMapObj=L.map('cdrmap').setView([16.44,102.83],11);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:19,attribution:'© Carto'}).addTo(cdrMapObj);
+    cdrMapObj._lg=L.layerGroup().addTo(cdrMapObj);
+  }
+  cdrMapObj._lg.clearLayers();
+  const pts=cdrRows.filter(r=>r.lat&&!isNaN(r.lat));
+  if(!pts.length){return;}
+  const line=pts.map(r=>[r.lat,r.lng]);
+  L.polyline(line,{color:'#c9a227',weight:2.5,opacity:.8}).addTo(cdrMapObj._lg);
+  pts.forEach((r,i)=>{
+    const first=i===0,last=i===pts.length-1;
+    const col=first?'#2ecc71':last?'#e04b4b':'#4aa3e0';
+    L.circleMarker([r.lat,r.lng],{radius:first||last?7:5,color:'#fff',weight:1.5,fillColor:col,fillOpacity:1})
+      .bindPopup(`<b>#${i+1}${first?' (เริ่ม)':last?' (ล่าสุด)':''}</b><br><span class="pop-k">${r.dt?fmtThaiDate(r.dt):r.dtRaw}</span><br><span class="pop-v">LAC ${r.lac} · CI ${r.ci}</span><br><span class="pop-k">${r.dir||''} → ${r.tgt?maskCid(r.tgt):''}</span>`)
+      .addTo(cdrMapObj._lg);
+  });
+  cdrMapObj.fitBounds(L.latLngBounds(line),{padding:[50,50],maxZoom:14});
+}
+function renderCdrSummary(){
+  const el=document.getElementById('cdrSummary');
+  const withPos=cdrRows.filter(r=>r.lat).length;
+  const cells=new Set(cdrRows.map(r=>r.lac+'-'+r.ci)).size;
+  const tgts=new Set(cdrRows.map(r=>r.tgt).filter(Boolean));
+  const inC=cdrRows.filter(r=>/in/i.test(r.dir)).length, outC=cdrRows.filter(r=>/out/i.test(r.dir)).length;
+  let span='-';
+  const ds=cdrRows.filter(r=>r.dt).map(r=>r.dt);
+  if(ds.length>=2){span=fmtThaiDate(ds[0])+' — '+fmtThaiDate(ds[ds.length-1]);}
+  el.innerHTML=`<div class="kv">
+    <div class="k">records</div><div class="v"><b>${cdrRows.length}</b> (มีพิกัด ${withPos})</div>
+    <div class="k">เซลล์ต่างกัน</div><div class="v"><b>${cells}</b></div>
+    <div class="k">ปลายทาง</div><div class="v"><b>${tgts.size}</b> เบอร์</div>
+    <div class="k">เข้า/ออก</div><div class="v">IN <b>${inC}</b> · OUT <b>${outC}</b></div>
+    <div class="k">ช่วงเวลา</div><div class="v" style="font-family:Sarabun;font-size:12px">${span}</div>
+  </div>`;
+}
+function cdrFocus(i){switchView('cdr');const r=cdrRows[i];if(r.lat)cdrMapObj.setView([r.lat,r.lng],15);}
+function cdrSample(){
+  document.getElementById('cdrIn').value=
+`datetime,lac,ci,lat,lng,direction,target,ta
+2568-05-01 08:14:22,8599,480237,16.4419,102.8360,OUT,0866315721,4
+2568-05-01 09:02:10,1605,43276,16.4501,102.8402,IN,0812345678,2
+2568-05-01 10:35:41,8599,480237,16.4419,102.8360,OUT,0866315721,3
+2568-05-01 12:20:05,1702,51200,16.4650,102.8550,IN,0899999999,6
+2568-05-01 15:48:33,1805,52100,16.4720,102.8600,OUT,0866315721,5`;
+}
+function clearCdr(){document.getElementById('cdrIn').value='';cdrRows=[];document.querySelector('#cdrTbl tbody').innerHTML='';document.getElementById('cdrSummary').innerHTML='';if(cdrMapObj)cdrMapObj._lg.clearLayers();updateChips();saveState();}
+
+/* ============================================================
+   TOOLS
+============================================================ */
+function hexdec(from){
+  const hx=document.getElementById('hxIn'),dc=document.getElementById('dcIn');
+  if(from==='hex'){const v=parseInt(hx.value,16);dc.value=isNaN(v)?'':v;}
+  else{const v=parseInt(dc.value,10);hx.value=isNaN(v)?'':v.toString(16).toUpperCase();}
+}
+function calcTa(){
+  const sel=document.getElementById('taTech').value;
+  document.getElementById('taCustom').style.display=sel==='acc'?'block':'none';
+  let unit=sel==='acc'?(+document.getElementById('taUnit').value||0):+sel;
+  const ta=+document.getElementById('taVal').value||0;
+  const d=ta*unit;
+  document.getElementById('taOut').innerHTML=`${Math.round(d).toLocaleString()} <small>m</small> &nbsp;≈&nbsp; ${(d/1000).toFixed(2)} <small>km</small><br><small>วง radius จากเสา · ± ${unit} m/หน่วย</small>`;
+}
+function decompCi(){
+  const ci=+document.getElementById('ciDec').value||0;const tech=document.getElementById('ciTech').value;
+  let html='';
+  if(tech==='4G'||tech==='5G'){const node=Math.floor(ci/256),sec=ci%256;const lbl=tech==='5G'?'gNB':'eNB';
+    html=`<div class="kv"><div class="k">${lbl} ID</div><div class="v"><b>${node}</b> <span class="hex">(0x${node.toString(16).toUpperCase()})</span></div>
+    <div class="k">Sector / CID</div><div class="v"><b>${sec}</b></div>
+    <div class="k">ECI</div><div class="v">${ci} = ${node}×256 + ${sec}</div></div>`;}
+  else{const rnc=Math.floor(ci/65536),cid=ci%65536;
+    html=`<div class="kv"><div class="k">RNC ID</div><div class="v"><b>${rnc}</b></div>
+    <div class="k">Cell ID</div><div class="v"><b>${cid}</b> <span class="hex">(0x${cid.toString(16).toUpperCase()})</span></div>
+    <div class="k">UC-ID</div><div class="v">${ci} = ${rnc}×65536 + ${cid}</div></div>`;}
+  document.getElementById('ciDecomp').innerHTML=html;
+}
+function calcDist(){
+  const a=+document.getElementById('d1la').value,b=+document.getElementById('d1lo').value,
+    c=+document.getElementById('d2la').value,d=+document.getElementById('d2lo').value;
+  if([a,b,c,d].some(isNaN)){document.getElementById('distOut').textContent='—';return;}
+  const dist=haversine(a,b,c,d),brg=bearing(a,b,c,d);
+  const dirs=['เหนือ','ตอน.','ตอ.','ตอต.','ใต้','ตต.','ตต','ตน.'];
+  document.getElementById('distOut').innerHTML=`${(dist/1000).toFixed(3)} <small>km</small> (${Math.round(dist).toLocaleString()} m)<br><small>ทิศ ${brg.toFixed(1)}°</small>`;
+}
+function calcTri(){
+  const p=weightedCentroid();
+  if(!p){document.getElementById('triOut').textContent='ต้องมี ≥2 เซลล์ในแผนที่';return;}
+  document.getElementById('triOut').innerHTML=`${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}<br><small>ความไม่แน่นอน ~${Math.round(p.spread)} m · จาก ${towers.length} เซลล์</small>`;
+  document.getElementById('tgTri').checked=true;switchView('map');redrawMap();
+  map.setView([p.lat,p.lng],14);
+}
+function parseMsisdn(){
+  let v=document.getElementById('msIn').value.replace(/\D/g,'');
+  if(!v){document.getElementById('msOut').innerHTML='';return;}
+  let cc='',ndc='',sub=v;
+  if(v.startsWith('66')){cc='66';let rest=v.slice(2);ndc=rest.slice(0,1)==='0'?rest.slice(0,3):rest.slice(0,2);sub=rest;}
+  else if(v.startsWith('0')){cc='66(local)';ndc=v.slice(0,3);sub=v;}
+  document.getElementById('msOut').innerHTML=`<div class="kv">
+    <div class="k">Country</div><div class="v">+${cc} 🇹🇭</div>
+    <div class="k">National</div><div class="v">0${v.startsWith('66')?v.slice(2):v.replace(/^0/,'')}</div>
+    <div class="k">Mask</div><div class="v"><b>${maskCid('0'+(v.startsWith('66')?v.slice(2):v.replace(/^0/,'')))}</b></div>
+  </div>`;
+}
+
+/* ============================================================
+   GEO CONVERSION — WGS84 → DMS / UTM / MGRS
+============================================================ */
+function toUTM(lat,lon){
+  const a=6378137.0,f=1/298.257223563,k0=0.9996;
+  const e2=f*(2-f),ep2=e2/(1-e2);
+  let zone=Math.floor((lon+180)/6)+1;
+  if(lat>=56&&lat<64&&lon>=3&&lon<12)zone=32;
+  if(lat>=72&&lat<84){if(lon>=0&&lon<9)zone=31;else if(lon>=9&&lon<21)zone=33;else if(lon>=21&&lon<33)zone=35;else if(lon>=33&&lon<42)zone=37;}
+  const lon0=(zone-1)*6-180+3;
+  const rl=lat*Math.PI/180,ro=lon*Math.PI/180,rl0=lon0*Math.PI/180;
+  const N=a/Math.sqrt(1-e2*Math.sin(rl)**2);
+  const T=Math.tan(rl)**2,C=ep2*Math.cos(rl)**2,A=Math.cos(rl)*(ro-rl0);
+  const M=a*((1-e2/4-3*e2*e2/64-5*e2**3/256)*rl-(3*e2/8+3*e2*e2/32+45*e2**3/1024)*Math.sin(2*rl)+(15*e2*e2/256+45*e2**3/1024)*Math.sin(4*rl)-(35*e2**3/3072)*Math.sin(6*rl));
+  let easting=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep2)*A**5/120)+500000;
+  let northing=k0*(M+N*Math.tan(rl)*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep2)*A**6/720));
+  if(lat<0)northing+=10000000;
+  const band="CDEFGHJKLMNPQRSTUVWXX".charAt(Math.floor((lat+80)/8));
+  return {zone,band,easting,northing,hemisphere:lat>=0?'N':'S'};
+}
+function toMGRS(lat,lon){
+  const u=toUTM(lat,lon);const e=Math.floor(u.easting),n=Math.floor(u.northing);
+  const set=(u.zone-1)%6;
+  const col=["ABCDEFGH","JKLMNPQR","STUVWXYZ"][set%3].charAt(Math.floor(e/100000)-1);
+  const rowL=(u.zone%2)?"ABCDEFGHJKLMNPQRSTUV":"FGHJKLMNPQRSTUVABCDE";
+  const row=rowL.charAt(Math.floor(n/100000)%20);
+  return `${u.zone}${u.band} ${col}${row} ${String(e%100000).padStart(5,'0')} ${String(n%100000).padStart(5,'0')}`;
+}
+function toDMS(v,isLat){
+  const dir=v>=0?(isLat?'N':'E'):(isLat?'S':'W');v=Math.abs(v);
+  const d=Math.floor(v),m=Math.floor((v-d)*60),s=((v-d)*60-m)*60;
+  return `${d}°${String(m).padStart(2,'0')}'${s.toFixed(2)}"${dir}`;
+}
+function convCoord(){
+  const lat=parseFloat(document.getElementById('cvLat').value),lng=parseFloat(document.getElementById('cvLng').value);
+  const el=document.getElementById('cvOut');
+  if(isNaN(lat)||isNaN(lng)){el.innerHTML='';return;}
+  const u=toUTM(lat,lng);
+  el.innerHTML=`<div class="kv">
+    <div class="k">Decimal</div><div class="v"><b>${lat.toFixed(6)}, ${lng.toFixed(6)}</b> <span class="copy" onclick="copyTxt('${lat},${lng}')">copy</span></div>
+    <div class="k">DMS</div><div class="v">${toDMS(lat,true)} ${toDMS(lng,false)}</div>
+    <div class="k">UTM</div><div class="v">${u.zone}${u.band} ${Math.round(u.easting)}E ${Math.round(u.northing)}N</div>
+    <div class="k">MGRS</div><div class="v"><b>${toMGRS(lat,lng)}</b> <span class="copy" onclick="copyTxt('${toMGRS(lat,lng)}')">copy</span></div>
+    <div class="k">Google</div><div class="v"><span class="mini-act" onclick="window.open('https://maps.google.com/?q=${lat},${lng}')">เปิด Google Maps ▸</span></div>
+  </div>`;
+}
+
+/* ============================================================
+   TOWER SEARCH — local siteDB → OpenCellID
+============================================================ */
+let siteDB=[]; let settings={ocKey:'',ocProxy:''};
+function saveSettings(){
+  settings.ocKey=document.getElementById('ocKey').value.trim();
+  settings.ocProxy=document.getElementById('ocProxy').value.trim();
+  try{localStorage.setItem('cellmapper.settings',JSON.stringify(settings));}catch(e){}
+  try{localStorage.setItem('cellmapper.sitedb',JSON.stringify(siteDB));}catch(e){}
+}
+function loadSettings(){
+  try{const s=JSON.parse(localStorage.getItem('cellmapper.settings')||'{}');settings={...settings,...s};
+    document.getElementById('ocKey').value=settings.ocKey||'';document.getElementById('ocProxy').value=settings.ocProxy||'';}catch(e){}
+  try{siteDB=JSON.parse(localStorage.getItem('cellmapper.sitedb')||'[]');}catch(e){siteDB=[];}
+  updateSiteStat();
+}
+function updateSiteStat(){const el=document.getElementById('siteDbStat');if(el)el.textContent=siteDB.length?`ฐานข้อมูล: ${siteDB.length.toLocaleString()} เซลล์`:'ยังไม่มีฐานข้อมูลในเครื่อง';}
+function syncLacLabel(){
+  const r=document.getElementById('sRadio').value;
+  document.getElementById('sLacLbl').textContent=(r==='LTE'||r==='NR')?'TAC (decimal)':'LAC (decimal)';
+}
+function fromDecoderToSearch(){
+  if(!lastDecode||lastDecode.error){toast('ยังไม่มีผล decode');return;}
+  document.getElementById('sMcc').value=lastDecode.mcc;
+  document.getElementById('sMnc').value=lastDecode.mnc;
+  document.getElementById('sLac').value=lastDecode.lacDec;
+  document.getElementById('sCi').value=lastDecode.ciDec;
+  const map={'4G':'LTE','5G':'NR','3G':'UMTS','2G':'GSM','2G/3G':'UMTS'};
+  document.getElementById('sRadio').value=map[lastDecode.tech]||'LTE';
+  syncLacLabel();toast('ดึงค่าจาก Decoder แล้ว');
+}
+function importSiteCsv(e){
+  const f=e.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{
+    const lines=rd.result.split(/\r?\n/).filter(Boolean);
+    const head=lines[0].split(',').map(h=>h.trim().toLowerCase());
+    const gi=(names)=>{for(const n of names){const i=head.findIndex(h=>h===n||h.includes(n));if(i>=0)return i;}return -1;};
+    const iMcc=gi(['mcc']),iMnc=gi(['mnc']),iLac=gi(['lac','tac']),iCi=gi(['cellid','cell_id','ci','cid']),
+      iLat=gi(['lat']),iLon=gi(['lon','lng','long']),iName=gi(['name','site','siteid']),iAz=gi(['az','azimuth','bearing']),iTech=gi(['radio','tech','rat']);
+    const db=[];
+    for(let i=1;i<lines.length;i++){
+      const c=lines[i].split(',');
+      const lat=parseFloat(c[iLat]),lon=parseFloat(c[iLon]);
+      if(isNaN(lat)||isNaN(lon))continue;
+      db.push({mcc:(c[iMcc]||'').trim(),mnc:(c[iMnc]||'').trim(),lac:(c[iLac]||'').trim(),ci:(c[iCi]||'').trim(),
+        lat,lon,name:iName>=0?(c[iName]||'').trim():'',az:iAz>=0?parseFloat(c[iAz]):null,tech:iTech>=0?(c[iTech]||'').trim():''});
+    }
+    siteDB=db;saveSettings();updateSiteStat();toast('นำเข้า '+db.length.toLocaleString()+' เซลล์');
+  };
+  rd.readAsText(f);
+}
+function searchLocal(mcc,mnc,lac,ci){
+  return siteDB.find(s=>String(s.ci)===String(ci)&&(!lac||String(s.lac)===String(lac))&&(!mcc||String(s.mcc)===String(mcc)))||
+         siteDB.find(s=>String(s.ci)===String(ci)); // fallback ตาม CI อย่างเดียว
+}
+async function searchTower(){
+  const mcc=document.getElementById('sMcc').value.trim(),mnc=document.getElementById('sMnc').value.trim();
+  const lac=document.getElementById('sLac').value.trim(),ci=document.getElementById('sCi').value.trim();
+  const radio=document.getElementById('sRadio').value;
+  document.getElementById('apiWarn').style.display='none';
+  if(!ci){toast('ต้องมี Cell ID');return;}
+  const res=document.getElementById('searchResult');
+  res.innerHTML='<div class="result-empty">กำลังค้นหา…</div>';
+
+  // 1) local DB
+  const hit=searchLocal(mcc,mnc,lac,ci);
+  if(hit){renderSearchResult({lat:hit.lat,lon:hit.lon,mcc,mnc,lac,ci,radio,name:hit.name,az:hit.az,source:'ฐานข้อมูลในเครื่อง',range:null});return;}
+
+  // 2) OpenCellID
+  if(!settings.ocKey){
+    res.innerHTML=`<div class="warn-box">ไม่พบใน DB ในเครื่อง และยังไม่ได้ตั้ง OpenCellID API Key<br>ตั้งค่าที่ ⚙ ด้านซ้าย หรือ import CSV ฐานข้อมูลเสา</div>`;
+    return;
+  }
+  try{
+    const base=settings.ocProxy||'https://opencellid.org/cell/get?';
+    const qs=`key=${encodeURIComponent(settings.ocKey)}&mcc=${mcc}&mnc=${mnc}&lac=${lac}&cellid=${ci}&radio=${radio}&format=json`;
+    const url=base+(base.includes('?')&&!base.endsWith('?')&&!base.endsWith('&')?'&':'')+qs;
+    const r=await fetch(url);
+    const txt=await r.text();
+    let d;try{d=JSON.parse(txt);}catch(_){throw new Error('ตอบกลับไม่ใช่ JSON: '+txt.slice(0,80));}
+    if(d.lat&&d.lon&&+d.lat!==0){
+      renderSearchResult({lat:+d.lat,lon:+d.lon,mcc,mnc,lac,ci,radio,name:'',az:null,source:'OpenCellID',range:d.range});
+    }else{
+      res.innerHTML=`<div class="warn-box">OpenCellID ไม่พบเซลล์นี้ (${d.message||d.error||'no result'})</div>`;
+    }
+  }catch(err){
+    const cors=/Failed to fetch|NetworkError|CORS/i.test(err.message);
+    res.innerHTML=`<div class="warn-box">เรียก OpenCellID ไม่สำเร็จ: ${err.message}${cors?'<br><br>น่าจะเป็น <b>CORS</b> — ตั้ง Proxy URL ที่ ⚙ (forward ไป opencellid.org แล้วเติม Access-Control-Allow-Origin)':''}</div>`;
+  }
+}
+function renderSearchResult(o){
+  window._lastSearch=o;
+  const u=toUTM(o.lat,o.lon);
+  const acc=o.range?`± ${o.range} m`:(o.source.includes('เครื่อง')?'จากฐานข้อมูล':'-');
+  document.getElementById('searchResult').innerHTML=`
+    <div class="res-head">
+      <div class="op-badge" style="background:var(--gold)">📍</div>
+      <div><div class="rh-t">${o.name||('CI '+o.ci)}</div><div class="rh-s">แหล่ง: ${o.source} · ความแม่น ${acc}</div></div>
+    </div>
+    <div class="kv">
+      <div class="k">พิกัด</div><div class="v"><b>${o.lat.toFixed(6)}, ${o.lon.toFixed(6)}</b> <span class="copy" onclick="copyTxt('${o.lat},${o.lon}')">copy</span></div>
+      <div class="k">DMS</div><div class="v">${toDMS(o.lat,true)} ${toDMS(o.lon,false)}</div>
+      <div class="k">MGRS</div><div class="v"><b>${toMGRS(o.lat,o.lon)}</b></div>
+      <div class="k">${(o.radio==='LTE'||o.radio==='NR')?'TAC':'LAC'} / CI</div><div class="v">${o.lac||'-'} / ${o.ci}</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-gold btn-sm" onclick="searchToMap()">➕ เพิ่มลงแผนที่</button>
+      <button class="btn btn-ghost btn-sm" onclick="window.open('https://maps.google.com/?q=${o.lat},${o.lon}')">🌐 Google Maps</button>
+    </div>`;
+}
+function searchToMap(){
+  const o=window._lastSearch;if(!o)return;
+  const opMap=lookupOp(o.mcc,o.mnc);
+  towers.push({name:o.name||(opMap.op+'-'+o.ci),op:opMap.op==='อื่นๆ'?'อื่นๆ':opMap.op,
+    lat:o.lat,lng:o.lon,lac:o.lac,ci:o.ci,az:o.az??null,beam:65,
+    tech:({LTE:'4G',NR:'5G',UMTS:'3G',GSM:'2G'})[o.radio]||'4G',rad:o.range||900,ta:null,w:1});
+  redrawMap();renderTwList();updateChips();saveState();switchView('map');
+  map.setView([o.lat,o.lon],15);toast('เพิ่มลงแผนที่แล้ว');
+}
+
+
+function renderPlmnTable(){
+  const tb=document.querySelector('#plmnTbl tbody');
+  tb.innerHTML=Object.entries(PLMN_TH).map(([mnc,v])=>
+    `<tr><td style="color:${opColor(v.op)};font-weight:700">520-${mnc}</td>`+
+    `<td class="t-op" style="color:${opColor(v.op)}">${v.op}</td>`+
+    `<td style="font-family:Sarabun">${v.ent}</td>`+
+    `<td style="font-family:Sarabun;color:var(--ink-mut)">${v.note||'-'}</td></tr>`
+  ).join('');
+}
+function switchView(v){document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('active',s.id==='view-'+v));
+  if(v==='map'&&map)setTimeout(()=>map.invalidateSize(),100);
+  if(v==='cdr'&&cdrMapObj)setTimeout(()=>cdrMapObj.invalidateSize(),100);}
+document.getElementById('tabs').addEventListener('click',e=>{const t=e.target.closest('.tab');if(t)switchView(t.dataset.view);});
+function updateChips(){document.getElementById('chipTowers').textContent=towers.length;
+  document.getElementById('chipCdr').textContent=cdrRows.length;
+  document.getElementById('twCount').textContent=towers.length;}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+function copyTxt(s){navigator.clipboard.writeText(s).then(()=>toast('คัดลอกแล้ว'));}
+
+/* export / import */
+function exportProject(){
+  const data={v:1,ts:Date.now(),towers,cdr:cdrRows.map(r=>({...r,dt:r.dt?r.dt.toISOString():null}))};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='cellmapper_'+new Date().toISOString().slice(0,10)+'.json';a.click();toast('Export แล้ว');
+}
+function importProject(e){
+  const f=e.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{try{const d=JSON.parse(rd.result);towers=d.towers||[];
+    cdrRows=(d.cdr||[]).map(r=>({...r,dt:r.dt?new Date(r.dt):null}));
+    redrawMap();renderTwList();renderCdr();updateChips();saveState();switchView('map');toast('Import สำเร็จ');
+  }catch(err){toast('ไฟล์ไม่ถูกต้อง');}};rd.readAsText(f);
+}
+
+/* ============================================================
+   PERSISTENCE (localStorage) — ข้อมูลไม่หายเวลารีเฟรช
+============================================================ */
+const LS_KEY='cellmapper.state.v1';
+let _saveT;
+function saveState(){
+  clearTimeout(_saveT);
+  _saveT=setTimeout(()=>{
+    try{
+      const data={v:1,ts:Date.now(),towers,
+        cdr:cdrRows.map(r=>({...r,dt:r.dt?r.dt.toISOString():null}))};
+      localStorage.setItem(LS_KEY,JSON.stringify(data));
+    }catch(e){console.warn('save fail',e);}
+  },350);
+}
+function loadState(){
+  try{
+    const raw=localStorage.getItem(LS_KEY); if(!raw)return false;
+    const d=JSON.parse(raw);
+    towers=d.towers||[];
+    cdrRows=(d.cdr||[]).map(r=>({...r,dt:r.dt?new Date(r.dt):null}));
+    return true;
+  }catch(e){return false;}
+}
+
+/* ============================================================
+   PWA — service worker + install + offline
+============================================================ */
+let deferredPrompt=null, swReg=null;
+function registerSW(){
+  if(!('serviceWorker' in navigator))return;
+  navigator.serviceWorker.register('./sw.js').then(reg=>{
+    swReg=reg;
+    reg.addEventListener('updatefound',()=>{
+      const nw=reg.installing;
+      nw && nw.addEventListener('statechange',()=>{
+        if(nw.state==='installed' && navigator.serviceWorker.controller){
+          document.getElementById('updateBar').classList.add('show');
+        }
+      });
+    });
+  }).catch(e=>console.warn('SW reg fail',e));
+  let reloaded=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{
+    if(reloaded)return;reloaded=true;location.reload();
+  });
+}
+function applyUpdate(){ if(swReg&&swReg.waiting)swReg.waiting.postMessage('skipWaiting'); }
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();deferredPrompt=e;
+  document.getElementById('installBtn').style.display='inline-flex';
+});
+function installApp(){
+  if(!deferredPrompt){toast('ติดตั้งผ่านเมนูเบราว์เซอร์ (Add to Home screen)');return;}
+  deferredPrompt.prompt();
+  deferredPrompt.userChoice.then(c=>{
+    if(c.outcome==='accepted')toast('กำลังติดตั้ง…');
+    deferredPrompt=null;document.getElementById('installBtn').style.display='none';
+  });
+}
+window.addEventListener('appinstalled',()=>{document.getElementById('installBtn').style.display='none';toast('ติดตั้งแอปแล้ว ✓');});
+
+function updateNet(){
+  const on=navigator.onLine;
+  const dot=document.getElementById('netDot');
+  dot.classList.toggle('off',!on);
+  dot.title=on?'ออนไลน์':'ออฟไลน์ — ใช้แผนที่ที่แคชไว้';
+}
+window.addEventListener('online',()=>{updateNet();toast('กลับมาออนไลน์');});
+window.addEventListener('offline',()=>{updateNet();toast('ออฟไลน์ — ใช้ข้อมูลที่แคชไว้');});
+
+/* hash routing (สำหรับ shortcut ของ PWA) */
+function routeHash(){
+  const h=location.hash.replace('#','');
+  if(['decode','search','map','cdr','tools','ref'].includes(h))switchView(h);
+}
+window.addEventListener('hashchange',routeHash);
+
+/* ============================================================
+   INIT
+============================================================ */
+window.addEventListener('load',()=>{
+  document.getElementById('chipDate').textContent=fmtThaiDate(new Date()).split(' ').slice(0,3).join(' ');
+  initMap();
+  loadSettings();syncLacLabel();
+  const restored=loadState();
+  renderTwList();renderPlmnTable();calcTa();decompCi();updateChips();
+  if(restored){
+    redrawMap();
+    if(cdrRows.length)renderCdr();
+    if(towers.length)setTimeout(fitMap,300);
+    toast('เรียกคืนข้อมูลที่บันทึกไว้ ('+towers.length+' เซลล์)');
+  }
+  updateNet();
+  registerSW();
+  routeHash();
+});
+</script>
+</body>
+</html>
