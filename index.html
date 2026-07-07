@@ -17,6 +17,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --navy-900:#081428; --navy-800:#0a1f44; --navy-700:#0d2a5c; --navy-600:#123a75;
@@ -434,8 +435,14 @@ footer b{color:var(--gold)}
 <section class="view" id="view-cdr">
   <div class="panel">
     <h2><span class="num">01</span>นำเข้า CDR / Log การเชื่อมต่อ</h2>
-    <div class="hint">วางข้อมูล CSV (มี header) — auto-map คอลัมน์: datetime, lac, ci/cgi, lat, lng, direction, target, imsi, ta</div>
+    <div class="hint">อัปโหลดไฟล์ CSV/Excel หรือวางข้อความ — auto-map คอลัมน์: datetime, lac/tac, ci/cgi, lat, lng, direction, target, imsi, ta (ข้ามแถวขยะด้านบนให้อัตโนมัติ)</div>
+    <div class="btn-row" style="margin:0 0 12px">
+      <button class="btn btn-gold" onclick="document.getElementById('cdrFile').click()">📂 นำเข้าไฟล์ (CSV / Excel)</button>
+      <input type="file" id="cdrFile" accept=".csv,.txt,.xlsx,.xls,.tsv" style="display:none" onchange="importCdrFile(event)" multiple>
+      <span id="cdrFileStat" style="font-size:12px;color:var(--ink-mut);align-self:center"></span>
+    </div>
     <textarea id="cdrIn" style="min-height:130px" placeholder="datetime,lac,ci,lat,lng,direction,target,ta&#10;2568-05-01 08:14:22,8599,480237,16.4419,102.8360,OUT,0866315721,4&#10;2568-05-01 09:02:10,1605,43276,16.4501,102.8402,IN,0812345678,2"></textarea>
+    <div id="cdrSheetPick" style="margin-top:10px;display:none"></div>
     <div class="btn-row">
       <button class="btn btn-gold" onclick="parseCdr()">▸ วิเคราะห์</button>
       <button class="btn btn-ghost" onclick="cdrSample()">ตัวอย่าง</button>
@@ -942,27 +949,93 @@ function weightedCentroid(){
    CDR MODULE
 ============================================================ */
 let cdrRows=[];
-function parseCdr(){
-  const raw=document.getElementById('cdrIn').value.trim();
-  if(!raw){toast('ยังไม่มีข้อมูล CDR');return;}
-  const lines=raw.split('\n').filter(Boolean);
-  const head=lines[0].split(',').map(h=>h.trim().toLowerCase());
+const CDR_KEYS=['datetime','date','time','วันเวลา','lac','tac','ci','cid','cell','cgi','lat','lon','lng','long','imsi','imei','msisdn','bnum','b party','called','target','ปลายทาง','direction','ta','timing','azimuth'];
+
+function detectDelim(text){
+  const s=text.split(/\r?\n/).slice(0,12).join('\n');
+  const cnt={',':(s.match(/,/g)||[]).length,'\t':(s.match(/\t/g)||[]).length,';':(s.match(/;/g)||[]).length};
+  return Object.entries(cnt).sort((a,b)=>b[1]-a[1])[0][0]||',';
+}
+function parseCsvLine(line,d){
+  const out=[];let cur='',q=false;
+  for(let i=0;i<line.length;i++){const ch=line[i];
+    if(q){ if(ch==='"'){ if(line[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=ch; }
+    else { if(ch==='"')q=true; else if(ch===d){out.push(cur);cur='';} else cur+=ch; }
+  }
+  out.push(cur);return out.map(s=>s.trim());
+}
+function findHeaderRow(rows){
+  for(let i=0;i<Math.min(rows.length,30);i++){
+    const low=(rows[i]||[]).map(c=>String(c).toLowerCase());
+    const hits=low.filter(c=>CDR_KEYS.some(k=>c===k||c.includes(k))).length;
+    if(hits>=2)return i;
+  }
+  return 0;
+}
+function ingestRows(rows,append){
+  if(!rows||!rows.length)return 0;
+  const hIdx=findHeaderRow(rows);
+  const head=(rows[hIdx]||[]).map(h=>String(h).trim().toLowerCase());
   const idx=(names)=>{for(const n of names){const i=head.findIndex(h=>h.includes(n));if(i>=0)return i;}return -1;};
-  const iDt=idx(['datetime','date','time','วันเวลา']),iLac=idx(['lac']),iCi=idx(['ci','cid','cell']),
+  const iDt=idx(['datetime','date','time','วันเวลา']),iLac=idx(['lac','tac']),iCi=idx(['cellid','cid','ci','cell']),
     iCgi=idx(['cgi']),iLat=idx(['lat']),iLng=idx(['lng','lon','long']),iDir=idx(['direction','dir','type','ทิศ']),
-    iTgt=idx(['target','bnum','msisdn','ปลายทาง']),iTa=idx(['ta','timing']),iImsi=idx(['imsi']);
-  cdrRows=[];
-  for(let i=1;i<lines.length;i++){
-    const c=lines[i].split(',').map(x=>x.trim());
+    iTgt=idx(['target','bnum','b party','called','msisdn','ปลายทาง']),iTa=idx(['ta','timing']),iImsi=idx(['imsi']);
+  if(!append)cdrRows=[];
+  let added=0;
+  for(let i=hIdx+1;i<rows.length;i++){
+    const c=(rows[i]||[]).map(x=>x==null?'':String(x).trim());
+    if(c.every(x=>x===''))continue;
     let lac=iLac>=0?c[iLac]:'',ci=iCi>=0?c[iCi]:'',lat=iLat>=0?parseFloat(c[iLat]):null,lng=iLng>=0?parseFloat(c[iLng]):null;
     if(iCgi>=0&&c[iCgi]){const d=decodeOne(c[iCgi],'auto','auto');if(d&&!d.error){lac=d.lacDec;ci=d.ciDec;}}
-    // match tower for coords
-    if((isNaN(lat)||lat===null)){const m=towers.find(t=>String(t.lac)===String(lac)&&String(t.ci)===String(ci));if(m){lat=m.lat;lng=m.lng;}}
-    const dtRaw=iDt>=0?c[iDt]:'';
-    cdrRows.push({dt:parseDt(dtRaw),dtRaw,lac,ci,lat,lng,dir:iDir>=0?c[iDir]:'',tgt:iTgt>=0?c[iTgt]:'',ta:iTa>=0?c[iTa]:'',imsi:iImsi>=0?c[iImsi]:''});
+    if(isNaN(lat)||lat===null){const m=towers.find(t=>String(t.lac)===String(lac)&&String(t.ci)===String(ci));if(m){lat=m.lat;lng=m.lng;}}
+    cdrRows.push({dt:parseDt(iDt>=0?c[iDt]:''),dtRaw:iDt>=0?c[iDt]:'',lac,ci,
+      lat:isNaN(lat)?null:lat,lng:isNaN(lng)?null:lng,
+      dir:iDir>=0?c[iDir]:'',tgt:iTgt>=0?c[iTgt]:'',ta:iTa>=0?c[iTa]:'',imsi:iImsi>=0?c[iImsi]:''});
+    added++;
   }
+  return added;
+}
+function finishCdr(){
   cdrRows.sort((a,b)=>(a.dt||0)-(b.dt||0));
   renderCdr();updateChips();saveState();toast('วิเคราะห์ '+cdrRows.length+' records');
+}
+function parseCdr(){
+  const raw=document.getElementById('cdrIn').value.trim();
+  if(!raw){toast('ยังไม่มีข้อมูล CDR — อัปโหลดไฟล์หรือวางข้อความ');return;}
+  const d=detectDelim(raw);
+  const rows=raw.split(/\r?\n/).filter(l=>l.trim()!=='').map(l=>parseCsvLine(l,d));
+  ingestRows(rows,false);
+  finishCdr();
+}
+async function importCdrFile(e){
+  const files=[...e.target.files];if(!files.length)return;
+  const stat=document.getElementById('cdrFileStat');stat.textContent='กำลังอ่าน…';
+  cdrRows=[];const names=[];let sheets=[];
+  for(const f of files){
+    names.push(f.name);
+    const ext=(f.name.split('.').pop()||'').toLowerCase();
+    try{
+      if(ext==='xlsx'||ext==='xls'){
+        if(typeof XLSX==='undefined'){toast('ไลบรารี Excel ยังโหลดไม่เสร็จ ลองใหม่');continue;}
+        const wb=XLSX.read(await f.arrayBuffer(),{type:'array',cellDates:true});
+        wb.SheetNames.forEach(sn=>{
+          const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:false,defval:''});
+          const hIdx=findHeaderRow(aoa);
+          const head=(aoa[hIdx]||[]).map(c=>String(c).toLowerCase());
+          const hits=head.filter(c=>CDR_KEYS.some(k=>c.includes(k))).length;
+          if(hits>=2){const n=ingestRows(aoa,true);if(n>0)sheets.push(`${sn}(${n})`);}
+        });
+      } else {
+        const text=await f.text();
+        const d=detectDelim(text);
+        const rows=text.split(/\r?\n/).filter(l=>l.trim()!=='').map(l=>parseCsvLine(l,d));
+        const n=ingestRows(rows,true);if(n>0)sheets.push(`${f.name}(${n})`);
+      }
+    }catch(err){toast('อ่าน '+f.name+' ไม่ได้: '+err.message);}
+  }
+  stat.textContent=sheets.length?('✓ '+sheets.join(' · ')):'ไม่พบข้อมูล CDR ในไฟล์';
+  if(cdrRows.length)finishCdr(); else toast('ไม่พบคอลัมน์ CDR ที่รู้จัก (lac/ci/cgi/date…)');
+  e.target.value='';
 }
 function parseDt(s){
   if(!s)return null;
